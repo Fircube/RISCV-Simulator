@@ -3,4 +3,4 @@ project(RISC_V)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(code main.cpp simulator.h memory.h decode.h alu.h utils.h)
+add_executable(code src/main.cpp src/simulator.h src/memory.h src/decode.h src/alu.h src/utils.h)
