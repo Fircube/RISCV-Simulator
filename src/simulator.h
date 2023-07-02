@@ -8,12 +8,13 @@
 #include "alu.h"
 #include "decode.h"
 #include "memory.h"
+#include "predict.h"
 #include "utils.h"
 
 const int size = 0x1000000;
 int Clock = 0;
-int Flush = 0;
 Memory<size> memory;
+TwoLevelPredictor predictor;
 u_int32_t PC = 0;
 
 enum State {
@@ -24,6 +25,7 @@ enum State {
 struct instruction_queue {
     u_int32_t pc = 0;
     u_int32_t order = 0;
+    bool jump = false;
 };
 
 struct InstructionQueue {
@@ -36,14 +38,15 @@ public:
 
     bool ifFull() { return buffer_.ifFull(); }
 
-    void enQueue(u_int32_t pc, u_int32_t order) {
-        buffer_.enQueue((instruction_queue) {pc, order});
+    void enQueue(u_int32_t pc, u_int32_t order, bool jump = false) {
+        buffer_.enQueue((instruction_queue) {pc, order, jump});
     }
 
     void deQueue() { buffer_.deQueue(); }
 
     void Flush() {
         stall_ = false;
+        end_ = false;
         buffer_.clear();
     }
 
@@ -75,7 +78,9 @@ struct reorder_buffer {
     u_int32_t order = 0;
     u_int32_t dest = 0; // reg->A、L, Addr->S, Nope->B
     u_int32_t val = 0; // regVal, StoreData
-    u_int32_t pc_mis_ = 0;
+    bool jump = false;
+    u_int32_t pc_now_ = 0;
+    u_int32_t pc_des_ = 0;
 };
 
 class ReorderBuffer { // Reorder Buffer
@@ -96,11 +101,13 @@ public:
         buffer_.clear();
     }
 
-    void Issue(Decode &decoder, u_int32_t pc_mis) {
+    void Issue(Decode &decoder, u_int32_t pc_now, u_int32_t pc_des = 0, bool jump = false) {
         reorder_buffer tmp;
         tmp.type = decoder.type_;
         tmp.order = decoder.order_;
-        tmp.pc_mis_ = pc_mis;
+        tmp.pc_now_ = pc_now;
+        tmp.pc_des_ = pc_des;
+        tmp.jump = jump;
         if (decoder.type_ != 'B' && decoder.type_ != 'S') {
             tmp.dest = decoder.rd_;
             tmp.entry = NewEntry();
@@ -405,7 +412,7 @@ public:
         }
     }
 
-    void commit(int entry) {
+    void Commit(int entry) {
         for (int i = 0; i < kNum; i++) {
             if (sta_[i].entry == entry) {
                 sta_[i].state = storing;
@@ -444,7 +451,7 @@ public:
         Decode decoder;
         decoder.SetOrder(order);
         decoder.decode();
-        if (decoder.type_ == 'B' || decoder.type_ == 'S' || decoder.op_ == JALR || decoder.rd_ != 0)
+        if (decoder.type_ != 'B' && (decoder.type_ == 'S' || decoder.op_ == JALR || decoder.rd_ != 0))
             isq.enQueue(PC, order);
         if (order == 0x0ff00513) {
             isq.end_ = true;
@@ -457,9 +464,13 @@ public:
             PC = des;
         } else if (decoder.type_ == 'B') {
             u_int32_t des = decoder.imm_ + PC;
-//            if (1)
-            PC = des; // todo
-//            else PC += 4;
+            if (predictor.Predict(PC)) {
+                isq.enQueue(PC, order, true);
+                PC = des;
+            } else {
+                isq.enQueue(PC, order, false);
+                PC += 4;
+            }
         } else PC += 4;
     }
 
@@ -469,6 +480,7 @@ public:
             return;
         }
         instruction_queue inst = isq.buffer_[0];
+//        std::cout<<std::dec<<inst.order<<'\n';
         Fetch();
         Decode decoder;
         decoder.SetOrder(inst.order);
@@ -505,11 +517,17 @@ public:
             isq.deQueue();
             lb.Issue(rob.NewEntry(), decoder);
             rob.Issue(decoder, inst.pc);
-        } else { // B、I、R
+        } else if (decoder.type_ == 'B') {
+            if (rs.ifFull() || rob.ifFull()) return;
+            isq.deQueue();
+            u_int32_t des = decoder.imm_ + inst.pc;
+            rs.Issue(rob.NewEntry(), decoder);
+            rob.Issue(decoder, inst.pc, des, inst.jump);
+        } else { // I、R
             if (rs.ifFull() || rob.ifFull()) return;
             isq.deQueue();
             rs.Issue(rob.NewEntry(), decoder);
-            rob.Issue(decoder, inst.pc + 4);
+            rob.Issue(decoder, inst.pc);
         }
     }
 
@@ -531,21 +549,27 @@ public:
         reorder_buffer inf = rob.buffer_[0];
         if (!inf.ready) return;
         if (inf.order == 0x0ff00513u) {
-            std::cout << std::dec << (rf.Reg_[10].val & 255u) << std::endl;
+            std::cout << std::dec << (rf.Reg_[10].val & 255u) << '\n';
+//            std::cout << predictor.Accuracy() << '\n';
             exit(0);
         }
         if (inf.type == 'S') {
-            lb.commit(inf.entry);
+            lb.Commit(inf.entry);
         } else if (inf.type == 'B') {
-            if (!inf.val) {
-                PC = inf.pc_mis_;
+            if (inf.val != inf.jump) {
+                if (inf.jump) PC = inf.pc_now_ + 4;
+                else PC = inf.pc_des_;
                 isq.Flush();
                 rs.Flush();
                 lb.Flush();
                 rob.Flush();
                 rf.Flush();
                 Fetch();
-            } else rob.deQueue();
+                predictor.Feedback(inf.pc_now_, inf.val, false);
+            } else {
+                rob.deQueue();
+                predictor.Feedback(inf.pc_now_, inf.val, true);
+            }
         } else {
             if (inf.dest) {
                 rf.Reg_[inf.dest].val = inf.val;
@@ -580,7 +604,6 @@ public:
     static void Run() {
         while (true) {
             ++Clock;
-
             Commit();
             WriteResult();
             Execute();
