@@ -1,10 +1,12 @@
 #ifndef RISC_V_SIMULATOR_H
 #define RISC_V_SIMULATOR_H
 
+#include <algorithm>
+#include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <vector>
-#include <iomanip>
 #include "alu.h"
 #include "decode.h"
 #include "memory.h"
@@ -602,12 +604,18 @@ public:
     }
 
     static void Run() {
+        std::vector<int> v = { 1, 2, 3, 4};
+        std::random_device rd;
+        std::mt19937 rng(rd());
         while (true) {
             ++Clock;
-            Commit();
-            WriteResult();
-            Execute();
-            Issue();
+            std::shuffle(v.begin(), v.end(), rng);
+            for (int n : v) {
+                if(n==1) Commit();
+                else if(n==2) WriteResult();
+                else if(n==3) Execute();
+                else if(n==4) Issue();
+            }
         }
     }
 
