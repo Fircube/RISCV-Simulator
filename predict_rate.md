@@ -1,0 +1,19 @@
+|Testcase| TwoLevelPredictor |
+|----|-------------------|
+|array_test1| 0.545455          |
+|array_test2| 0.5               |
+|basicopt1| 0.900328          |
+|bulgarian| 0.946191          |
+|expr| 0.720721          |
+|gcd| 0.691667          |
+|hanoi| 0.864238          |
+|lvalue2| 0.666667          |
+|magic| 0.8353            |
+|manyarguments| 0.8               |
+|multiarray| 0.641975          |
+|pi| 0.843834          |
+|qsort| 0.93142           |
+|queens| 0.735178          |
+|statement_test| 0.648515          |
+|superloop| 0.953465          |
+|tak| 0.810815          |
