@@ -604,17 +604,17 @@ public:
     }
 
     static void Run() {
-        std::vector<int> v = { 1, 2, 3, 4};
+        std::vector<int> v = {1, 2, 3, 4};
         std::random_device rd;
         std::mt19937 rng(rd());
         while (true) {
             ++Clock;
             std::shuffle(v.begin(), v.end(), rng);
-            for (int n : v) {
-                if(n==1) Commit();
-                else if(n==2) WriteResult();
-                else if(n==3) Execute();
-                else if(n==4) Issue();
+            for (int n: v) {
+                if (n == 1) Commit();
+                else if (n == 2) WriteResult();
+                else if (n == 3) Execute();
+                else if (n == 4) Issue();
             }
         }
     }

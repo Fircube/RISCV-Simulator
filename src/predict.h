@@ -54,5 +54,49 @@ public:
 
 };
 
+class GsharePredictor {
+private:
+
+    u_int8_t GHR; // 全局分支历史寄存器,存储着过去N个分支的跳转方向
+    // 每个分支的历史跳转表 PHT/BHT
+    // 存储着同一个分支前几次的跳转状态（常用2BC）
+    u_int8_t PHT[256];
+
+    int total_;
+    int correct_;
+
+    u_int8_t Hash(u_int32_t pc) {
+        return (pc & 255) ^ GHR;
+    }
+
+public:
+    GsharePredictor() {
+        total_ = correct_ = 0;
+        GHR = 0;
+        memset(PHT, 0, sizeof(PHT));
+    }
+
+    bool Predict(u_int32_t pc) {
+        u_int8_t key = Hash(pc);
+        if ((PHT[key] >> 1) & 1) return true;
+        else return false;
+    }
+
+    void Feedback(u_int32_t pc, bool jump, bool right) {
+        if (right) correct_++;
+        total_++;
+        u_int8_t key = Hash(pc);
+        if (jump && PHT[key] < 3) ++PHT[key];
+        else if (!jump && PHT[key] > 0) --PHT[key];
+        GHR = ((GHR << 1) | jump) & 255;
+    }
+
+    double Accuracy() {
+        if (total_) return 1.0 * correct_ / total_;
+        else return 1.0;
+    }
+
+};
+
 
 #endif //RISC_V_PREDICT_H
